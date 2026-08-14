@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
@@ -225,7 +225,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_Svu_MaohIT5SJeBMaK3yHQ_2KHdnptm';
 /* ==================================================== */
 
 const TABLE = 'stockout_records';
-let supabase = null;
+let db = null;
 let records = [];
 let editingId = null;
 let currentFilter = 'all';
@@ -270,12 +270,12 @@ function initSupabase(){
     tbody.innerHTML = `<tr><td colspan="8" class="cell-empty">請先完成資料庫設定（見上方提示）</td></tr>`;
     return false;
   }
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   return true;
 }
 
 async function loadRecords(){
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from(TABLE)
     .select('*')
     .order('delivery_date', { ascending: true });
@@ -301,7 +301,7 @@ function resetForm(){
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  if(!supabase) return;
+  if(!db) return;
   const productName = $('productName').value.trim();
   const customerName = $('customerName').value.trim();
   const quantity = $('quantity').value;
@@ -326,10 +326,10 @@ form.addEventListener('submit', async (e) => {
 
   let error;
   if(editingId){
-    ({ error } = await supabase.from(TABLE).update(payload).eq('id', editingId));
+    ({ error } = await db.from(TABLE).update(payload).eq('id', editingId));
   } else {
     payload.resolved = false;
-    ({ error } = await supabase.from(TABLE).insert(payload));
+    ({ error } = await db.from(TABLE).insert(payload));
   }
   $('submitBtn').disabled = false;
 
@@ -358,7 +358,7 @@ $('filterTabs').addEventListener('click', (e) => {
 
 tbody.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
-  if(!btn || !supabase) return;
+  if(!btn || !db) return;
   const id = btn.dataset.id;
   const rec = records.find(r => r.id === id);
   if(!rec) return;
@@ -377,13 +377,13 @@ tbody.addEventListener('click', async (e) => {
   }
   if(btn.dataset.action === 'delete'){
     if(confirm(`確定要刪除「${rec.product_name}」的缺貨紀錄嗎？`)){
-      const { error } = await supabase.from(TABLE).delete().eq('id', id);
+      const { error } = await db.from(TABLE).delete().eq('id', id);
       if(error){ alert('刪除失敗：' + error.message); return; }
       await loadRecords();
     }
   }
   if(btn.dataset.action === 'toggle'){
-    const { error } = await supabase.from(TABLE).update({ resolved: !rec.resolved }).eq('id', id);
+    const { error } = await db.from(TABLE).update({ resolved: !rec.resolved }).eq('id', id);
     if(error){ alert('更新失敗：' + error.message); return; }
     await loadRecords();
   }
@@ -464,7 +464,7 @@ $('recordTime').value = nowLocalInputValue();
 if(initSupabase()){
   loadRecords();
   // 即時同步：其他人新增/修改/刪除時自動刷新
-  supabase
+  db
     .channel('stockout_records_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, () => loadRecords())
     .subscribe();
