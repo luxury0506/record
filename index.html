@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>缺貨紀錄簿</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --paper:#E9EEEE;
+    --paper-deep:#DFE6E6;
+    --line:#C4CFCF;
+    --line-soft:#D6DEDE;
+    --ink:#20262E;
+    --ink-soft:#5B6570;
+    --ink-faint:#8B94A0;
+    --blue:#2F5D74;
+    --blue-dark:#234A5D;
+    --red:#A5332A;
+    --amber:#B0761E;
+    --green:#3B7754;
+    --card:#F5F7F7;
+    --white:#FCFDFD;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      repeating-linear-gradient(to bottom, transparent, transparent 27px, var(--line-soft) 28px),
+      var(--paper);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    padding:32px 20px 80px;
+  }
+  .sheet{ max-width:1080px; margin:0 auto; }
+  .letterhead{
+    display:flex; justify-content:space-between; align-items:flex-end;
+    border-bottom:3px solid var(--ink); padding-bottom:14px; margin-bottom:6px;
+    flex-wrap:wrap; gap:12px;
+  }
+  .letterhead h1{
+    font-family:'Barlow Semi Condensed',sans-serif; font-weight:700; font-size:34px;
+    letter-spacing:1px; margin:0; color:var(--ink);
+  }
+  .letterhead .tag{ font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--ink-soft); letter-spacing:.5px; }
+  .meta-line{
+    font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--ink-soft);
+    display:flex; gap:22px; padding:10px 0 26px; border-bottom:1px dashed var(--line);
+    margin-bottom:24px; flex-wrap:wrap;
+  }
+  .meta-line b{color:var(--ink);font-weight:600;}
+  .meta-line .stat-pending b{color:var(--red);}
+  .meta-line .stat-over b{color:var(--red);}
+  .sync-note{ color:var(--ink-faint); }
+  .sync-note.err{ color:var(--red); }
+
+  .form-card{ background:var(--card); border:1px solid var(--line); border-radius:4px; padding:22px 24px 20px; margin-bottom:32px; position:relative; }
+  .form-card::before{
+    content:'新增紀錄'; position:absolute; top:-11px; left:20px; background:var(--ink); color:var(--white);
+    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; padding:3px 10px; border-radius:2px;
+  }
+  .form-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px 18px; margin-top:12px; }
+  .field label{
+    display:block; font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.8px;
+    color:var(--ink-soft); text-transform:uppercase; margin-bottom:5px;
+  }
+  .field input{
+    width:100%; padding:9px 10px; border:1px solid var(--line); border-bottom:2px solid var(--ink-faint);
+    border-radius:3px; background:var(--white); font-family:'JetBrains Mono',monospace; font-size:13.5px; color:var(--ink);
+  }
+  .field input:focus{ outline:none; border-bottom-color:var(--blue); }
+  .form-actions{ margin-top:18px; display:flex; gap:10px; align-items:center; }
+  button{ font-family:'Inter',sans-serif; cursor:pointer; }
+  .btn-primary{ background:var(--blue); color:var(--white); border:none; padding:10px 20px; border-radius:3px; font-weight:600; font-size:13.5px; letter-spacing:.3px; }
+  .btn-primary:hover{background:var(--blue-dark);}
+  .btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-ghost{ background:transparent; border:1px solid var(--line); color:var(--ink-soft); padding:10px 16px; border-radius:3px; font-size:13.5px; }
+  .btn-ghost:hover{border-color:var(--ink-soft);color:var(--ink);}
+  .form-error{ font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--red); }
+
+  .toolbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:12px; flex-wrap:wrap; }
+  .toolbar input[type=text]{ padding:8px 12px; border:1px solid var(--line); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:13px; width:240px; background:var(--white); }
+  .filter-tabs{display:flex;gap:6px;}
+  .filter-tabs button{
+    background:var(--white); border:1px solid var(--line); padding:6px 13px; border-radius:14px;
+    font-size:12px; color:var(--ink-soft); font-family:'JetBrains Mono',monospace;
+  }
+  .filter-tabs button.active{ background:var(--ink); color:var(--white); border-color:var(--ink); }
+
+  .ledger{ width:100%; border-collapse:collapse; background:var(--white); border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  .ledger thead th{
+    text-align:left; font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.7px;
+    text-transform:uppercase; color:var(--ink-soft); background:var(--paper-deep); padding:11px 12px; border-bottom:2px solid var(--ink);
+  }
+  .ledger tbody td{ padding:12px; font-size:13.5px; border-bottom:1px solid var(--line-soft); vertical-align:middle; }
+  .ledger tbody tr:nth-child(even){background:#F7F9F9;}
+  .ledger tbody tr:hover{background:#EFF4F4;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  .cell-qty{font-family:'JetBrains Mono',monospace;font-weight:600;}
+  .cell-empty{ text-align:center; padding:48px 12px; color:var(--ink-faint); font-family:'JetBrains Mono',monospace; font-size:13px; }
+
+  .stamp{
+    display:inline-block; font-family:'Barlow Semi Condensed',sans-serif; font-weight:700; font-size:11.5px;
+    letter-spacing:1.5px; padding:3px 10px 4px; border:2px solid currentColor; border-radius:3px;
+    transform:rotate(-3deg); text-transform:uppercase;
+  }
+  .stamp.overdue{color:var(--red);}
+  .stamp.pending{color:var(--amber);}
+  .stamp.resolved{color:var(--green);transform:rotate(-2deg);}
+
+  .row-actions{display:flex;gap:6px;}
+  .icon-btn{ background:none; border:1px solid var(--line); border-radius:3px; width:28px;height:28px; font-size:13px; color:var(--ink-soft); display:flex;align-items:center;justify-content:center; }
+  .icon-btn:hover{border-color:var(--ink);color:var(--ink);}
+  .icon-btn.danger:hover{border-color:var(--red);color:var(--red);}
+  .icon-btn.done:hover{border-color:var(--green);color:var(--green);}
+
+  .config-warning{
+    background:#FBEDEA; border:1px solid var(--red); color:var(--red); padding:14px 18px; border-radius:4px;
+    font-family:'JetBrains Mono',monospace; font-size:12.5px; margin-bottom:24px; line-height:1.6;
+  }
+
+  @media (max-width:760px){
+    .form-grid{grid-template-columns:1fr 1fr;}
+    .ledger thead{display:none;}
+    .ledger, .ledger tbody, .ledger tr, .ledger td{display:block;width:100%;}
+    .ledger tbody tr{border-bottom:2px solid var(--line);padding:10px 0;}
+    .ledger tbody td{border-bottom:none;padding:4px 12px;}
+    .ledger tbody td::before{
+      content:attr(data-label); display:block; font-family:'JetBrains Mono',monospace; font-size:9.5px;
+      color:var(--ink-faint); text-transform:uppercase; letter-spacing:.6px; margin-bottom:2px;
+    }
+  }
+  @media (max-width:520px){ .form-grid{grid-template-columns:1fr;} }
+  @media (prefers-reduced-motion: reduce){ *{transition:none !important;} }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="letterhead">
+    <h1>缺貨紀錄簿</h1>
+    <div class="tag">STOCKOUT LOG — INTERNAL USE</div>
+  </div>
+
+  <div id="configWarning" class="config-warning" style="display:none;">
+    ⚠ 尚未設定資料庫連線。請打開這個檔案，找到 &lt;script&gt; 區塊最上方的
+    SUPABASE_URL 與 SUPABASE_ANON_KEY，換成你自己 Supabase 專案的值後存檔重新部署。
+  </div>
+
+  <div class="meta-line" id="metaLine">
+    <span>今日日期 <b id="todayLabel">—</b></span>
+    <span>總筆數 <b id="totalCount">0</b></span>
+    <span class="stat-pending">待補貨 <b id="pendingCount">0</b></span>
+    <span class="stat-over">已逾期 <b id="overdueCount">0</b></span>
+    <span class="sync-note" id="syncNote">連線中…</span>
+  </div>
+
+  <form class="form-card" id="recordForm">
+    <div class="form-grid">
+      <div class="field">
+        <label for="productName">產品名稱</label>
+        <input type="text" id="productName" placeholder="例：SENS 感測模組 A" required>
+      </div>
+      <div class="field">
+        <label for="customerName">客戶名稱</label>
+        <input type="text" id="customerName" placeholder="例：大同科技" required>
+      </div>
+      <div class="field">
+        <label for="quantity">數量</label>
+        <input type="number" id="quantity" min="1" placeholder="0" required>
+      </div>
+      <div class="field">
+        <label for="deliveryDate">交期</label>
+        <input type="date" id="deliveryDate" required>
+      </div>
+      <div class="field">
+        <label for="poNumber">採購單號</label>
+        <input type="text" id="poNumber" placeholder="例：PO-20260814-01">
+      </div>
+      <div class="field">
+        <label for="recordTime">紀錄時間</label>
+        <input type="datetime-local" id="recordTime" required>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn-primary" id="submitBtn">新增紀錄</button>
+      <button type="button" class="btn-ghost" id="cancelEditBtn" style="display:none;">取消編輯</button>
+      <span class="form-error" id="formError"></span>
+    </div>
+  </form>
+
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="搜尋 產品／客戶／單號…">
+    <div class="filter-tabs" id="filterTabs">
+      <button data-filter="all" class="active">全部</button>
+      <button data-filter="pending">待補貨</button>
+      <button data-filter="overdue">已逾期</button>
+      <button data-filter="resolved">已到貨</button>
+    </div>
+    <button type="button" class="btn-ghost" id="exportBtn">匯出 Excel</button>
+  </div>
+
+  <table class="ledger">
+    <thead>
+      <tr>
+        <th>產品名稱</th><th>客戶名稱</th><th>數量</th><th>交期</th>
+        <th>採購單號</th><th>紀錄時間</th><th>狀態</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr><td colspan="8" class="cell-empty">載入中…</td></tr>
+    </tbody>
+  </table>
+
+</div>
+
+<script>
+/* ====== 請在這裡填入你自己的 Supabase 專案設定 ====== */
+const SUPABASE_URL = 'https://aillnrfhhrvpwvguwpjt.supabase.co/rest/v1/';
+const SUPABASE_ANON_KEY = 'sb_publishable_Svu_MaohIT5SJeBMaK3yHQ_2KHdnptm';
+/* ==================================================== */
+
+const TABLE = 'stockout_records';
+let supabase = null;
+let records = [];
+let editingId = null;
+let currentFilter = 'all';
+let searchTerm = '';
+let currentList = [];
+
+const statusLabel = { pending: '待補貨', overdue: '已逾期', resolved: '已到貨' };
+const $ = (id) => document.getElementById(id);
+const form = $('recordForm');
+const tbody = $('tbody');
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function nowLocalInputValue(){
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function todayISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function fmtDateTime(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  if(isNaN(d)) return iso;
+  return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fmtDate(iso){ if(!iso) return '—'; return String(iso).replaceAll('-','/'); }
+function computeStatus(r){
+  if(r.resolved) return 'resolved';
+  if(r.delivery_date && r.delivery_date < todayISO()) return 'overdue';
+  return 'pending';
+}
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function initSupabase(){
+  if(SUPABASE_URL.startsWith('YOUR_') || SUPABASE_ANON_KEY.startsWith('YOUR_')){
+    $('configWarning').style.display = 'block';
+    $('syncNote').textContent = '尚未連線資料庫';
+    $('syncNote').classList.add('err');
+    tbody.innerHTML = `<tr><td colspan="8" class="cell-empty">請先完成資料庫設定（見上方提示）</td></tr>`;
+    return false;
+  }
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  return true;
+}
+
+async function loadRecords(){
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .order('delivery_date', { ascending: true });
+  if(error){
+    $('syncNote').textContent = '讀取失敗：' + error.message;
+    $('syncNote').classList.add('err');
+    return;
+  }
+  records = data || [];
+  $('syncNote').textContent = '已同步';
+  $('syncNote').classList.remove('err');
+  render();
+}
+
+function resetForm(){
+  form.reset();
+  $('recordTime').value = nowLocalInputValue();
+  editingId = null;
+  $('submitBtn').textContent = '新增紀錄';
+  $('cancelEditBtn').style.display = 'none';
+  $('formError').textContent = '';
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if(!supabase) return;
+  const productName = $('productName').value.trim();
+  const customerName = $('customerName').value.trim();
+  const quantity = $('quantity').value;
+  const deliveryDate = $('deliveryDate').value;
+  const poNumber = $('poNumber').value.trim();
+  const recordTime = $('recordTime').value;
+
+  if(!productName || !customerName || !quantity || !deliveryDate || !recordTime){
+    $('formError').textContent = '請完整填寫必填欄位';
+    return;
+  }
+
+  $('submitBtn').disabled = true;
+  const payload = {
+    product_name: productName,
+    customer_name: customerName,
+    quantity: Number(quantity),
+    delivery_date: deliveryDate,
+    po_number: poNumber,
+    record_time: new Date(recordTime).toISOString()
+  };
+
+  let error;
+  if(editingId){
+    ({ error } = await supabase.from(TABLE).update(payload).eq('id', editingId));
+  } else {
+    payload.resolved = false;
+    ({ error } = await supabase.from(TABLE).insert(payload));
+  }
+  $('submitBtn').disabled = false;
+
+  if(error){
+    $('formError').textContent = '儲存失敗：' + error.message;
+    return;
+  }
+  resetForm();
+  await loadRecords();
+});
+
+$('cancelEditBtn').addEventListener('click', resetForm);
+
+$('searchInput').addEventListener('input', (e) => {
+  searchTerm = e.target.value.trim().toLowerCase();
+  render();
+});
+
+$('filterTabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-filter]');
+  if(!btn) return;
+  currentFilter = btn.dataset.filter;
+  document.querySelectorAll('#filterTabs button').forEach(b => b.classList.toggle('active', b === btn));
+  render();
+});
+
+tbody.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if(!btn || !supabase) return;
+  const id = btn.dataset.id;
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+
+  if(btn.dataset.action === 'edit'){
+    editingId = id;
+    $('productName').value = rec.product_name;
+    $('customerName').value = rec.customer_name;
+    $('quantity').value = rec.quantity;
+    $('deliveryDate').value = rec.delivery_date;
+    $('poNumber').value = rec.po_number || '';
+    $('recordTime').value = rec.record_time ? rec.record_time.slice(0,16) : nowLocalInputValue();
+    $('submitBtn').textContent = '儲存修改';
+    $('cancelEditBtn').style.display = 'inline-block';
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
+  if(btn.dataset.action === 'delete'){
+    if(confirm(`確定要刪除「${rec.product_name}」的缺貨紀錄嗎？`)){
+      const { error } = await supabase.from(TABLE).delete().eq('id', id);
+      if(error){ alert('刪除失敗：' + error.message); return; }
+      await loadRecords();
+    }
+  }
+  if(btn.dataset.action === 'toggle'){
+    const { error } = await supabase.from(TABLE).update({ resolved: !rec.resolved }).eq('id', id);
+    if(error){ alert('更新失敗：' + error.message); return; }
+    await loadRecords();
+  }
+});
+
+$('exportBtn').addEventListener('click', () => {
+  if(!currentList.length){ alert('目前沒有資料可以匯出'); return; }
+  const rows = currentList.map(r => ({
+    '產品名稱': r.product_name,
+    '客戶名稱': r.customer_name,
+    '數量': r.quantity,
+    '交期': r.delivery_date,
+    '採購單號': r.po_number || '',
+    '紀錄時間': fmtDateTime(r.record_time),
+    '狀態': statusLabel[r.status] || ''
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:20},{wch:16},{wch:8},{wch:12},{wch:18},{wch:18},{wch:10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '缺貨紀錄');
+  const stamp = todayISO().replaceAll('-','');
+  XLSX.writeFile(wb, `缺貨紀錄_${stamp}.xlsx`);
+});
+
+function render(){
+  $('todayLabel').textContent = fmtDate(todayISO());
+  let list = records.map(r => ({...r, status: computeStatus(r)}));
+
+  $('totalCount').textContent = list.length;
+  $('pendingCount').textContent = list.filter(r => r.status === 'pending').length;
+  $('overdueCount').textContent = list.filter(r => r.status === 'overdue').length;
+
+  if(currentFilter !== 'all'){ list = list.filter(r => r.status === currentFilter); }
+  if(searchTerm){
+    list = list.filter(r =>
+      r.product_name.toLowerCase().includes(searchTerm) ||
+      r.customer_name.toLowerCase().includes(searchTerm) ||
+      (r.po_number || '').toLowerCase().includes(searchTerm)
+    );
+  }
+  list.sort((a,b) => (a.delivery_date || '').localeCompare(b.delivery_date || ''));
+  currentList = list;
+
+  if(list.length === 0){
+    tbody.innerHTML = `<tr><td colspan="8" class="cell-empty">目前沒有符合的缺貨紀錄</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map(r => {
+    const stampMap = {
+      overdue: '<span class="stamp overdue">逾期</span>',
+      pending: '<span class="stamp pending">待補貨</span>',
+      resolved: '<span class="stamp resolved">已到貨</span>'
+    };
+    return `
+      <tr>
+        <td data-label="產品名稱">${escapeHtml(r.product_name)}</td>
+        <td data-label="客戶名稱">${escapeHtml(r.customer_name)}</td>
+        <td data-label="數量" class="cell-qty">${r.quantity}</td>
+        <td data-label="交期" class="mono">${fmtDate(r.delivery_date)}</td>
+        <td data-label="採購單號" class="mono">${escapeHtml(r.po_number || '—')}</td>
+        <td data-label="紀錄時間" class="mono">${fmtDateTime(r.record_time)}</td>
+        <td data-label="狀態">${stampMap[r.status]}</td>
+        <td data-label="操作">
+          <div class="row-actions">
+            <button class="icon-btn done" data-action="toggle" data-id="${r.id}" title="${r.resolved ? '標記為待補貨' : '標記為已到貨'}">${r.resolved ? '↺' : '✓'}</button>
+            <button class="icon-btn" data-action="edit" data-id="${r.id}" title="編輯">✎</button>
+            <button class="icon-btn danger" data-action="delete" data-id="${r.id}" title="刪除">✕</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// init
+$('recordTime').value = nowLocalInputValue();
+if(initSupabase()){
+  loadRecords();
+  // 即時同步：其他人新增/修改/刪除時自動刷新
+  supabase
+    .channel('stockout_records_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, () => loadRecords())
+    .subscribe();
+}
+</script>
+</body>
+</html>
